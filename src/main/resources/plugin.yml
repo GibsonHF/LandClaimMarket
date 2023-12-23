@@ -1,0 +1,4 @@
+name: LandClaimMarket
+version: '${version}'
+main: me.gibson.landclaim.main.landclaimmarket.LandClaimMarket
+api-version: '1.20'
