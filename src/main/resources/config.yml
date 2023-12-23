@@ -1,0 +1,5 @@
+options:
+  systemID: '0dcc6633-6179-49ab-9754-a79e5938720e' # this is the account that receives the claim and money from expired claims
+  claimPrice: 1500 # this is the price of a expired claim * claim area size
+  logExpiredClaims: true # this will log expired claims to the console
+  enableClaimExpiration: true # this will enable claim expiration to auto add to the market

@@ -2,3 +2,35 @@ name: LandClaimMarket
 version: '${version}'
 main: me.gibson.landclaim.main.landclaimmarket.LandClaimMarket
 api-version: '1.20'
+author: Gibson
+description: LandClaimMarket for Griefprevention
+permissions:
+  landclaimmarket.listclaims:
+    description: List all claims
+    default: true
+  landclaimmarket.sellclaim:
+    description: Sell a claim
+    default: true
+  landclaimmarket.unlist:
+    description: Unlist a claim
+    default: op
+  landclaimmarket.claimlog:
+    description: gets message of the claim log
+    default: op
+commands:
+  listrealestate:
+    description: List all claims
+    usage: /<command>
+    permission: landclaimmarket.listclaims
+  sellclaim:
+    description: Sell a claim
+    usage: /<command> <price>
+    permission: landclaimmarket.sellclaim
+  reloadrealestate:
+    description: Reload the plugin
+    usage: /<command>
+    permission: op
+  logcustoms:
+    description: Log custom items in the current claim
+    usage: /<command>
+    permission: landclaimmarket.logcustoms
