@@ -25,7 +25,14 @@ import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.text.DecimalFormat;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.Comparator;
+import java.util.function.Consumer;
 
 public class InventoryListener implements Listener {
     public static LandClaimMarket plugin;
@@ -46,7 +53,7 @@ public class InventoryListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        if(!event.getView().getTitle().startsWith("Claims for Sale - Page ") && !event.getView().getTitle().startsWith("Confirm Purchase")) {
+        if(!event.getView().getTitle().startsWith("Claims for Sale - Page ") && !event.getView().getTitle().startsWith("Confirm Purchase") && !event.getView().getTitle().startsWith("Upcoming Expired Claims - Page ")) {
             return;
         }
         if(!(event.getWhoClicked() instanceof Player)) {
@@ -58,14 +65,30 @@ public class InventoryListener implements Listener {
         if(event.getCurrentItem() == null || event.getCurrentItem().getType() == Material.AIR) {
             return;
         }
-        if (event.getSlot() == 48 || event.getSlot() == 50) {
-            String title = event.getView().getTitle();
-            int currentPage = extractPageNumber(title); // Extract the current page number from the title
-            int newPage = event.getSlot() == 48 ? currentPage - 1 : currentPage + 1;
+        if(event.getView().getTitle().startsWith("Claims for Sale - Page")) {
+            if (event.getSlot() == 48 || event.getSlot() == 50) {
+                String title = event.getView().getTitle();
+                int currentPage = extractPageNumber(title); // Extract the current page number from the title
+                int newPage = event.getSlot() == 48 ? currentPage - 1 : currentPage + 1;
 
-            Inventory newInv = getClaimsInventory(newPage);
-            player.openInventory(newInv);
-            return;
+                Inventory newInv = getClaimsInventory(newPage);
+                player.openInventory(newInv);
+                return;
+            }
+        }
+
+        if(event.getView().getTitle().startsWith("Upcoming Expired Claims - Page")) {
+            if (event.getSlot() == 48 || event.getSlot() == 50) {
+                String title = event.getView().getTitle();
+                int currentPage = extractPageNumber(title); // Extract the current page number from the title
+                int newPage = event.getSlot() == 48 ? currentPage - 1 : currentPage + 1;
+
+                plugin.inventoryListener.getUpcomingExpiredClaims(upcomingExpiredClaims -> {
+                    Inventory newInv = plugin.inventoryListener.createUpcomingExpiredClaimsGUI(upcomingExpiredClaims, newPage);
+                    player.openInventory(newInv);
+                });
+                return;
+            }
         }
 
 
@@ -304,7 +327,7 @@ public class InventoryListener implements Listener {
                     player.sendMessage(ChatColor.RED + "This claim does not exist.");
                     return;
                 }
-                if (plugin.getEconomy().getBalance(player) <= claimInfo.getPrice()) {
+                if (plugin.getEconomy().getBalance(player) <= claimInfo.getPrice() && !player.hasPermission("landclaimmarket.bypass")) {
                     player.sendMessage(ChatColor.RED + "You do not have enough money to purchase this claim. You have "
                             + ChatColor.GREEN + plugin.getEconomy().getBalance(player) + ChatColor.RED
                             + " and the claim costs " + ChatColor.GREEN + claimInfo.getPrice());
@@ -371,10 +394,12 @@ public class InventoryListener implements Listener {
         double price = plugin.getConfig().getDouble("options.claimPrice");
         int blocks = claim.getArea();
         price = price * blocks;
-        plugin.getClaimsForSale().put(claim, new ClaimInfo(taxId, price, claim.getID()));
+        LocalDateTime dateAdded = LocalDateTime.now(); // Get the current date and time
+
+        plugin.getClaimsForSale().put(claim, new ClaimInfo(taxId, price, claim.getID(), dateAdded));
         plugin.SaveClaims();
         String content;
-        if(claimInfo.getUUID() == null) {
+        if(claimInfo == null) {
             //make this content include EXPIRED CLAIM so people know difference in expired and regular sell
             DecimalFormat df = new DecimalFormat("#,###");
             double price1 = claimInfo.getPrice();
@@ -453,7 +478,7 @@ public class InventoryListener implements Listener {
                 }
 
                 // Process the blocks in smaller batches synchronously
-                int batchSize = 10; // Adjust this value as needed
+                int batchSize = 1000; // Adjust this value as needed
                 List<List<Location>> batches = new ArrayList<>();
                 for (int i = 0; i < locations.size(); i += batchSize) {
                     batches.add(locations.subList(i, Math.min(i + batchSize, locations.size())));
@@ -488,7 +513,10 @@ public class InventoryListener implements Listener {
 
         // Create a queue from the blocks list
         Queue<Block> blockQueue = new LinkedList<>(blocks);
-
+        if (blocks.isEmpty()) {
+            System.err.println("Error: The blocks list is empty.");
+            return;
+        }
         // Create a repeating task that processes one block from the queue every tick
         logTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
             if (!blockQueue.isEmpty()) {
@@ -560,6 +588,7 @@ public class InventoryListener implements Listener {
                         System.out.println("Saved files: " + fileNormals.getPath() + ", " + fileCustoms.getPath());
                     } catch (IOException e) {
                         e.printStackTrace();
+                        System.err.println("Error: An exception was thrown during the execution of the task.");
                         System.out.println("Failed to save files: " + fileNormals.getPath() + ", " + fileCustoms.getPath());
                     }
                 });
@@ -635,6 +664,9 @@ public class InventoryListener implements Listener {
     private static List<Claim> getValidClaims() {
         List<Claim> claimsList = new ArrayList<>(plugin.getClaimsForSale().keySet());
         claimsList.removeIf(claim -> plugin.getClaimsForSale().get(claim) == null);
+
+        claimsList.sort(Comparator.comparing(claim -> plugin.getClaimsForSale().get(claim).getDateAdded()).reversed());
+
         return claimsList;
     }
 
@@ -655,6 +687,9 @@ public class InventoryListener implements Listener {
         double price = info.getPrice();
         String formattedPrice = df.format(price);
 
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM/dd/yy HH:mm");
+        String dateAdded = info.getDateAdded().format(formatter);
+
         int claimId = (int) plugin.getClaimsForSale().get(claim).getClaimId();
         UUID playerUUID = plugin.getClaimsForSale().get(claim).getUUID();
         OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(playerUUID);
@@ -665,6 +700,7 @@ public class InventoryListener implements Listener {
         lore.add(ChatColor.GOLD + "Price: " + ChatColor.GREEN + "$" + formattedPrice);
         lore.add(ChatColor.GOLD + "Owner: " + ChatColor.BLUE + offlinePlayer.getName());
         lore.add(ChatColor.GOLD + "Claim Size: " + ChatColor.LIGHT_PURPLE + claim.getArea() + " Blocks");
+        lore.add(ChatColor.GOLD + "Date Added: " + ChatColor.BLUE + dateAdded);
         lore.add(ChatColor.YELLOW + "Left click for options.");
         meta.setLore(lore);
         meta.setOwner(Bukkit.getOfflinePlayer(claim.ownerID).getName());
@@ -732,5 +768,126 @@ public class InventoryListener implements Listener {
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    // Method to get upcoming expired claims
+    public void getUpcomingExpiredClaims(Consumer<List<Claim>> callback) {
+        Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
+            List<Claim> upcomingExpiredClaims = new ArrayList<>();
+            for (Claim claim : getAllClaims()) {
+                Claim storedClaim = GriefPrevention.instance.dataStore.getClaim(claim.getID());
+                if (storedClaim == null) {
+                    continue; // Skip this claim if it doesn't exist in the data store
+                }
+                if (isAboutToExpire(claim)) {
+                    upcomingExpiredClaims.add(claim);
+                }
+            }
+            upcomingExpiredClaims.sort(Comparator.comparing(this::getExpirationDate).reversed());
+            Bukkit.getScheduler().runTask(plugin, () -> callback.accept(upcomingExpiredClaims));
+        });
+    }
+
+
+    // Method to check if a claim is about to expire
+    public boolean isAboutToExpire(Claim claim) {
+        LocalDateTime expirationDate = getExpirationDate(claim);
+        if (expirationDate == null) {
+            // Skip the claim if the expiration date is null
+            return false;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        Duration timeUntilExpiration = Duration.between(now, expirationDate);
+
+        // Return false if the claim has already expired
+        if (timeUntilExpiration.isNegative()) {
+            return false;
+        }
+        return timeUntilExpiration.toHours() <= 96; // Change this to adjust the threshold
+    }
+
+    public Inventory createUpcomingExpiredClaimsGUI(List<Claim> claims, int page) {
+        int itemsPerPage = 45; // This can be adjusted as needed
+        int totalItems = claims.size();
+        int totalPages = (int) Math.ceil((double) totalItems / itemsPerPage);
+
+        // Ensure the page number is within the valid range
+        page = Math.max(1, Math.min(page, totalPages));
+
+        // Calculate the start and end index for the sublist of claims for this page
+        int startIndex = (page - 1) * itemsPerPage;
+        int endIndex = Math.min(startIndex + itemsPerPage, totalItems);
+
+        // Get the sublist of claims for this page
+        List<Claim> claimsForPage = claims.subList(startIndex, endIndex);
+
+        // Create the inventory
+        Inventory inv = Bukkit.createInventory(null, 54, "Upcoming Expired Claims - Page " + page);
+
+        // Add the claims to the inventory
+        for (Claim claim : claimsForPage) {
+            inv.addItem(createClaimItem2(claim));
+        }
+
+        // Add navigation items
+        if (page > 1) {
+            // Add a "previous page" item if this isn't the first page
+            inv.setItem(48, createNavigationItem(Material.ARROW, "Previous Page"));
+        }
+        if (page < totalPages) {
+            // Add a "next page" item if this isn't the last page
+            inv.setItem(50, createNavigationItem(Material.ARROW, "Next Page"));
+        }
+
+        return inv;
+    }
+
+    private ItemStack createClaimItem2(Claim claim) {
+        ItemStack item = new ItemStack(Material.PAPER); // Change this to the material you want
+        ItemMeta meta = item.getItemMeta();
+
+        LocalDateTime expirationDate = getExpirationDate(claim);
+        Duration timeUntilExpiration = Duration.between(LocalDateTime.now(), expirationDate);
+        long hoursUntilExpiration = timeUntilExpiration.toHours();
+
+        // Format the expiration date
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM/dd/yy HH:mm");
+        String formattedExpirationDate = expirationDate.format(formatter);
+
+        meta.setDisplayName("Claim ID: " + claim.getID());
+        List<String> lore = new ArrayList<>();
+        lore.add("Expires on: " + formattedExpirationDate);
+        meta.setLore(lore);
+
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    public List<Claim> getAllClaims() {
+        return new ArrayList<>(GriefPrevention.instance.dataStore.getClaims());
+    }
+
+    public LocalDateTime getExpirationDate(Claim claim) {
+        UUID ownerUUID = claim.getOwnerID();
+
+        if (ownerUUID == null) {
+            // Handle the case where the owner's UUID is null
+            // For example, return a default expiration date
+            return null; // Change this to your default expiration date
+        }
+
+        OfflinePlayer owner = Bukkit.getOfflinePlayer(ownerUUID);
+        long lastPlayed = owner.getLastPlayed(); // This is in milliseconds since the epoch
+        LocalDateTime lastOnline = LocalDateTime.ofInstant(Instant.ofEpochMilli(lastPlayed), ZoneId.systemDefault());
+
+        // Assuming claims expire 90 days after the owner was last online
+        LocalDateTime expirationDate = lastOnline.plusDays(90);
+
+        return expirationDate;
+    }
+    
+    public ClaimInfo getClaimInfo(Claim claim)
+    {
+        return plugin.claimsForSale.get(claim);
     }
 }

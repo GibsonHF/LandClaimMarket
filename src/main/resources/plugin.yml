@@ -18,6 +18,9 @@ permissions:
   landclaimmarket.claimlog:
     description: gets message of the claim log
     default: op
+  landclaimmarket.bypass:
+    description: bypasses the claim market money thing
+    default: op
 commands:
   listrealestate:
     description: List all claims
@@ -35,3 +38,11 @@ commands:
     description: Log custom items in the current claim
     usage: /<command>
     permission: landclaimmarket.logcustoms
+  showupcoming:
+    description: Show upcoming claims
+    usage: /<command>
+    permission: landclaimmarket.showupcoming
+  claimteleport:
+    description: Teleport to a claim
+    usage: /<command> <claimid>
+    permission: landclaimmarket.claimteleport

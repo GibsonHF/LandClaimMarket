@@ -12,6 +12,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 import java.text.DecimalFormat;
+import java.time.LocalDateTime;
 
 public class SellClaimCommand implements CommandExecutor {
     private final LandClaimMarket plugin;
@@ -53,7 +54,12 @@ public class SellClaimCommand implements CommandExecutor {
             return true;
         }
 
-       if(!claim.ownerID.equals(player.getUniqueId())) {
+        if(claim.ownerID == null) {
+            player.sendMessage("You cannot sell an unowned claim.");
+            return true;
+        }
+
+       if(!claim.ownerID.equals(player.getUniqueId()) && !player.hasPermission("landclaimmarket.bypass")){
             player.sendMessage("You cannot sell a claim you do not own.");
             return true;
         }
@@ -84,8 +90,10 @@ public class SellClaimCommand implements CommandExecutor {
             player.sendMessage("You must specify a valid price.");
             return true;
         }
-        ClaimInfo claimInfo = new ClaimInfo(player.getUniqueId(), price, claim.getID());
-        plugin.getClaimsForSale().put(claim, new ClaimInfo(player.getUniqueId(), price, claim.getID()));
+        LocalDateTime dateAdded = LocalDateTime.now(); // Get the current date and time
+
+        ClaimInfo claimInfo = new ClaimInfo(player.getUniqueId(), price, claim.getID(), dateAdded);
+        plugin.getClaimsForSale().put(claim, new ClaimInfo(player.getUniqueId(), price, claim.getID(), dateAdded));
         plugin.SaveClaims();
         DecimalFormat df = new DecimalFormat("#,###");
         double price1 = claimInfo.getPrice();

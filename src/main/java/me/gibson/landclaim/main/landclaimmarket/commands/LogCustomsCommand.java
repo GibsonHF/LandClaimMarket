@@ -5,6 +5,7 @@ import me.gibson.landclaim.main.landclaimmarket.listeners.InventoryListener;
 import me.ryanhamshire.GriefPrevention.Claim;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
 import org.bukkit.ChatColor;
+import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -41,9 +42,54 @@ public class LogCustomsCommand implements CommandExecutor {
 
         List<Block> blocks = new ArrayList<>();
         for (int x = claim.getLesserBoundaryCorner().getBlockX(); x <= claim.getGreaterBoundaryCorner().getBlockX(); x++) {
-            for (int y = claim.getLesserBoundaryCorner().getBlockY(); y <= 300; y++) {
+            for (int y = claim.getLesserBoundaryCorner().getBlockY(); y <= 150; y++) {
                 for (int z = claim.getLesserBoundaryCorner().getBlockZ(); z <= claim.getGreaterBoundaryCorner().getBlockZ(); z++) {
                     Block block = claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z);
+                    if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.AIR) {
+                        continue;
+                    }
+                    if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.CAVE_AIR) {
+                        continue;
+                    }
+                    if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.STONE) {
+                        continue;
+                    }
+
+                    if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.GRASS_BLOCK) {
+                        continue;
+                    }
+
+                    if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.DIRT) {
+                        continue;
+                    }
+
+                    if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.COBBLESTONE) {
+                        continue;
+                    }
+
+                    if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.SAND) {
+                        continue;
+                    }
+
+                    if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.SANDSTONE) {
+                        continue;
+                    }
+
+                    if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.GRAVEL) {
+                        continue;
+                    }
+
+                    if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.WATER) {
+                        continue;
+                    }
+
+                    if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.LAVA) {
+                        continue;
+                    }
+
+                    if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.BEDROCK) {
+                        continue;
+                    }
                     if (block.getState() instanceof InventoryHolder) {
                         blocks.add(block);
                     }

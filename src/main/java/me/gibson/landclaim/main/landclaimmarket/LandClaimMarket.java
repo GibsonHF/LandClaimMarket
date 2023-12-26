@@ -1,24 +1,20 @@
 package me.gibson.landclaim.main.landclaimmarket;
 
-import me.gibson.landclaim.main.landclaimmarket.commands.ListClaimsCommand;
-import me.gibson.landclaim.main.landclaimmarket.commands.LogCustomsCommand;
-import me.gibson.landclaim.main.landclaimmarket.commands.SellClaimCommand;
-import me.gibson.landclaim.main.landclaimmarket.commands.ReloadConfigCommand;
+import me.gibson.landclaim.main.landclaimmarket.commands.*;
 import me.gibson.landclaim.main.landclaimmarket.listeners.InventoryListener;
 import me.gibson.landclaim.main.landclaimmarket.utils.ClaimInfo;
 import me.ryanhamshire.GriefPrevention.Claim;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
 import net.milkbowl.vault.economy.Economy;
-import org.bukkit.Bukkit;
-import org.bukkit.OfflinePlayer;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import javax.security.auth.login.LoginException;
 import java.io.File;
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 public final class LandClaimMarket extends JavaPlugin {
@@ -33,6 +29,8 @@ public final class LandClaimMarket extends JavaPlugin {
         this.getCommand("listrealestate").setExecutor(new ListClaimsCommand(this));
         this.getCommand("reloadrealestate").setExecutor(new ReloadConfigCommand(this));
         this.getCommand("logcustoms").setExecutor(new LogCustomsCommand(this, inventoryListener));
+        this.getCommand("showupcoming").setExecutor(new ShowUpcomingCommand(this));
+        this.getCommand("claimteleport").setExecutor(new me.gibson.landclaim.main.landclaimmarket.commands.ClaimTeleportCommand(this));
         getServer().getPluginManager().registerEvents(new InventoryListener(this), this);
         inventoryListener = new InventoryListener(this);
         if(!getDataFolder().exists()) {
@@ -89,11 +87,18 @@ public final class LandClaimMarket extends JavaPlugin {
             if(claim == null) {
                 continue;
             }
+            ClaimInfo claimInfo = claimsForSale.get(claim);
+            if(claimInfo == null) {
+                continue;
+            }
             if(claimsForSale.get(claim) == null) {
                 continue;
             }
             config.set("claims." + claim.getID().toString() + ".ownerUUID", claim.getOwnerID().toString());
             config.set("claims." + claim.getID().toString() + ".price", claimsForSale.get(claim).getPrice());
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM/dd/yy HH:mm");
+            String dateAdded = claimInfo.getDateAdded().format(formatter);
+            config.set("claims." + claim.getID().toString() + ".dateAdded", dateAdded);
         }
         try {
             config.save(file);
@@ -112,8 +117,15 @@ public final class LandClaimMarket extends JavaPlugin {
                 Claim claim = GriefPrevention.instance.dataStore.getClaim(Long.parseLong(claimId));
                 UUID ownerUUID = UUID.fromString(config.getString("claims." + claimId + ".ownerUUID"));
                 double price = config.getDouble("claims." + claimId + ".price");
-                claimsForSale.put(claim, new ClaimInfo(ownerUUID, price, Long.parseLong(claimId)));
-            }
+                String dateAddedString = config.getString("claims." + claimId + ".dateAdded");
+                LocalDateTime dateAdded;
+                if (dateAddedString == null) {
+                    dateAdded = LocalDateTime.now();
+                } else {
+                    DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MM/dd/yy HH:mm");
+                    dateAdded = LocalDateTime.parse(dateAddedString, formatter);
+                }
+                claimsForSale.put(claim, new ClaimInfo(ownerUUID, price, Long.parseLong(claimId), dateAdded));            }
         }
     }
 
