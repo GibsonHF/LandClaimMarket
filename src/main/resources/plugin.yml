@@ -3,6 +3,7 @@ version: '${version}'
 main: me.gibson.landclaim.main.landclaimmarket.LandClaimMarket
 api-version: '1.20'
 author: Gibson
+depend: [GriefPrevention]
 description: LandClaimMarket for Griefprevention
 permissions:
   landclaimmarket.listclaims:

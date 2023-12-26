@@ -1,5 +1,6 @@
 plugins {
     id 'java'
+    id 'com.github.johnrengelman.shadow' version '7.1.0' // check for the latest version
 }
 
 group = 'me.gibson.landclaim.main'
@@ -26,6 +27,7 @@ dependencies {
     implementation("com.github.TechFortress:GriefPrevention:16.18")
     compileOnly "com.github.MilkBowl:VaultAPI:1.7"
 
+
 }
 
 def targetJavaVersion = 17
@@ -43,6 +45,7 @@ tasks.withType(JavaCompile).configureEach {
         options.release = targetJavaVersion
     }
 }
+
 
 processResources {
     def props = [version: version]
