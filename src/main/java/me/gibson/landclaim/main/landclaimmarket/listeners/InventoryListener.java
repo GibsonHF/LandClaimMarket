@@ -6,6 +6,7 @@ import me.gibson.landclaim.main.landclaimmarket.utils.ClaimInfo;
 import me.ryanhamshire.GriefPrevention.Claim;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
 import me.ryanhamshire.GriefPrevention.events.*;
+import net.milkbowl.vault.chat.Chat;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.bukkit.*;
 import org.bukkit.entity.Player;
@@ -47,7 +48,7 @@ public class InventoryListener implements Listener {
 
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
-        if(!event.getView().getTitle().startsWith("Claims for Sale - Page ") && !event.getView().getTitle().startsWith("Confirm Purchase") && !event.getView().getTitle().startsWith("Upcoming Expired Claims - Page ")) {
+        if(!event.getView().getTitle().startsWith("Claims for Sale - Page ") && !event.getView().getTitle().startsWith("Owned Claims - Page ") && !event.getView().getTitle().startsWith("Real Estate") && !event.getView().getTitle().startsWith("Confirm Purchase") && !event.getView().getTitle().startsWith("Upcoming Expired Claims - Page ")) {
             return;
         }
         if(!(event.getWhoClicked() instanceof Player)) {
@@ -59,6 +60,94 @@ public class InventoryListener implements Listener {
         if(event.getCurrentItem() == null || event.getCurrentItem().getType() == Material.AIR) {
             return;
         }
+
+        if (event.getView().getTitle().startsWith("Real Estate")) {
+            event.setCancelled(true);
+            ItemStack clickedItem = event.getCurrentItem();
+
+            if (clickedItem == null) {
+                return;
+            }
+
+            String itemName = clickedItem.getItemMeta().getDisplayName();
+
+            if(event.getSlot() == 12){
+                player.closeInventory();
+                Bukkit.getScheduler().scheduleSyncDelayedTask(plugin, new Runnable() {
+                    @Override
+                    public void run() {
+                        Inventory playerClaimsInv = createPlayerClaimsGUI(player, 1);
+                        player.openInventory(playerClaimsInv);
+                    }
+                }, 5L);
+            } else if (event.getSlot() == 14) {
+                player.closeInventory();
+                Bukkit.getScheduler().scheduleSyncDelayedTask(plugin, new Runnable() {
+                    @Override
+                    public void run() {
+                        Inventory realEstateInv = getClaimsInventory(1);
+
+                        player.openInventory(realEstateInv);
+                    }
+                }, 5L);
+            }  else if (event.getSlot() == 26)
+            {
+                player.closeInventory();
+            }
+        }
+
+        if (event.getView().getTitle().startsWith("Owned Claims - Page")) {
+            event.setCancelled(true);
+            ItemStack clickedItem = event.getCurrentItem();
+
+            //add support for pages
+            if (event.getSlot() == 48 || event.getSlot() == 50) {
+                String title = event.getView().getTitle();
+                int currentPage = extractPageNumber(title); // Extract the current page number from the title
+                int newPage = event.getSlot() == 48 ? currentPage - 1 : currentPage + 1;
+
+                Inventory newInv = createPlayerClaimsGUI(player, newPage);
+                player.openInventory(newInv);
+                return;
+            }
+
+            if (clickedItem == null || !clickedItem.hasItemMeta()) {
+                return;
+            }
+
+            ItemMeta meta = clickedItem.getItemMeta();
+
+            if (!meta.hasCustomModelData()) {
+                return;
+            }
+
+            int claimId = meta.getCustomModelData();
+            Claim claim = GriefPrevention.instance.dataStore.getClaim(claimId);
+
+            if (claim == null) {
+                player.sendMessage(ChatColor.RED + "This claim no longer exists.");
+                return;
+            }
+
+            Location center = claim.getLesserBoundaryCorner().add(claim.getGreaterBoundaryCorner()).multiply(0.5);
+            for(int i = 255; i >= 0; i--) {
+                if(center.clone().add(0, i, 0).getBlock().getType() != Material.AIR) {
+                    center.add(0, i, 0);
+                    break;
+                }
+            }
+
+            player.closeInventory();
+            player.sendMessage(ChatColor.YELLOW + "Teleporting to claim in 5 seconds.");
+            teleportTasks.put(player.getUniqueId(), Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                player.teleport(center);
+                player.sendMessage(ChatColor.GREEN + "You have teleported to this claim.");
+                player.closeInventory();
+                teleportTasks.remove(player.getUniqueId()); // Remove the task after teleporting
+            }, 5 * 20L));
+        }
+
+
         if(event.getView().getTitle().startsWith("Claims for Sale - Page")) {
             if (event.getSlot() == 48 || event.getSlot() == 50) {
                 String title = event.getView().getTitle();
@@ -664,8 +753,125 @@ public class InventoryListener implements Listener {
         return expirationDate;
     }
     
-    public ClaimInfo getClaimInfo(Claim claim)
-    {
-        return plugin.claimsForSale.get(claim);
+   //get player owned claims
+    public List<Claim> getPlayerClaims(UUID playerUUID) {
+        List<Claim> playerClaims = new ArrayList<>();
+        for (Claim claim : getAllClaims()) {
+            if (claim.getOwnerID() == null) {
+                continue; // Skip this claim if the owner's UUID is null
+            }
+            if (claim.getOwnerID().equals(playerUUID)) {
+                playerClaims.add(claim);
+            }
+        }
+
+        playerClaims.sort(Comparator.comparing(claim -> plugin.getClaimsForSale().containsKey(claim) ? 0 : 1).reversed());
+
+
+        return playerClaims;
+    }
+
+    //get player owned claims
+    public List<Claim> getPlayerClaims(OfflinePlayer player) {
+        return getPlayerClaims(player.getUniqueId());
+    }
+
+    private static ItemStack createItem(Material material, String displayName) {
+        ItemStack item = new ItemStack(material, 1);
+        ItemMeta meta = item.getItemMeta();
+        meta.setDisplayName(displayName);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    public Inventory createMainGUI() {
+        Inventory inv = Bukkit.createInventory(null, 27, "Real Estate");
+
+        inv.setItem(12, createItem(Material.PLAYER_HEAD, ChatColor.GREEN + "Player Owned Claims"));
+        inv.setItem(14, createItem(Material.OAK_SIGN, ChatColor.YELLOW + "Real Estate for Sale"));
+
+        inv.setItem(26, createItem(Material.BARRIER, ChatColor.RED + "Close"));
+
+        fillEmptySlots(inv, Material.GRAY_STAINED_GLASS_PANE, ChatColor.GRAY + " ");
+
+        return inv;
+    }
+
+    //gui to display player owned claims
+    public Inventory createPlayerClaimsGUI(OfflinePlayer player, int page) {
+        List<Claim> playerClaims = getPlayerClaims(player);
+        int itemsPerPage = 45; // This can be adjusted as needed
+        int totalItems = playerClaims.size();
+        int totalPages = (int) Math.ceil((double) totalItems / itemsPerPage);
+
+        // Ensure the page number is within the valid range
+        page = Math.max(1, Math.min(page, totalPages));
+
+        // Calculate the start and end index for the sublist of claims for this page
+        int startIndex = (page - 1) * itemsPerPage;
+        int endIndex = Math.min(startIndex + itemsPerPage, totalItems);
+
+        // Get the sublist of claims for this page
+        List<Claim> claimsForPage = playerClaims.subList(startIndex, endIndex);
+
+        // Create the inventory
+        Inventory inv = Bukkit.createInventory(null, 54, "Owned Claims - Page " + page);
+
+        // Add the claims to the inventory
+        for (Claim claim : claimsForPage) {
+            inv.addItem(createClaimItem3(claim));
+        }
+
+        //add item for total price of all claims getconfig.getdouble("options.claimprice") * claim.getarea()
+        double totalClaimPrice = 0;
+        for(Claim claim : playerClaims)
+        {
+            totalClaimPrice += plugin.getConfig().getDouble("options.claimPrice") * claim.getArea();
+        }
+        DecimalFormat df = new DecimalFormat("#,###");
+        String formattedPrice = df.format(totalClaimPrice);
+        ItemStack item = new ItemStack(Material.GOLD_INGOT);
+        ItemMeta meta = item.getItemMeta();
+        meta.setDisplayName(ChatColor.GOLD + "Total Claim Value: " + ChatColor.GREEN + "$" + formattedPrice);
+        item.setItemMeta(meta);
+        inv.setItem(49, item);
+
+        // Add navigation items
+        if (page > 1) {
+            // Add a "previous page" item if this isn't the first page
+            inv.setItem(48, createNavigationItem(Material.ARROW, "Previous Page"));
+        }
+        if (page < totalPages) {
+            // Add a "next page" item if this isn't the last page
+            inv.setItem(50, createNavigationItem(Material.ARROW, "Next Page"));
+        }
+        return inv;
+    }
+
+    private ItemStack createClaimItem3(Claim claim) {
+        ItemStack item = new ItemStack(Material.PLAYER_HEAD); // Change this to the material you want
+
+        // Create a list for the lore
+        List<String> lore = new ArrayList<>();
+        int claimid = Math.toIntExact(claim.getID());
+
+        // Add the claim id, size, and location to the lore
+        lore.add(ChatColor.GRAY + "Claim Size: " + ChatColor.GREEN + claim.getArea() + " Blocks");
+        lore.add(ChatColor.GRAY + "Location: " + ChatColor.GREEN + "X: " + claim.getLesserBoundaryCorner().getBlockX() + " Y: " + claim.getLesserBoundaryCorner().getBlockY() + " Z: " + claim.getLesserBoundaryCorner().getBlockZ());
+        lore.add(ChatColor.YELLOW + "Left click to teleport.");
+        if(plugin.getClaimsForSale().containsKey(claim))
+        {
+            lore.add(ChatColor.RED + "This claim is for sale.");
+        }
+        SkullMeta skullMeta = (SkullMeta) item.getItemMeta();
+        skullMeta.setOwner(Bukkit.getOfflinePlayer(claim.ownerID).getName());
+        skullMeta.setDisplayName(ChatColor.GRAY + "Claim ID: " + ChatColor.GREEN + claim.getID());
+        skullMeta.setLore(lore);
+        skullMeta.setCustomModelData(claimid);
+        item.setItemMeta(skullMeta);
+
+        // Set the item meta to the item
+
+        return item;
     }
 }

@@ -33,7 +33,7 @@ public class ListClaimsCommand implements CommandExecutor {
 
         Player player = (Player) sender;
 
-        player.openInventory(plugin.inventoryListener.getClaimsInventory(1));
+        player.openInventory(plugin.inventoryListener.createMainGUI());
 
 
 

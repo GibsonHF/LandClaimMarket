@@ -24,6 +24,7 @@ commands:
   listrealestate:
     description: List all claims
     usage: /<command>
+    aliases: [realestate, realestatelist, re, relist]
     permission: landclaimmarket.listclaims
   sellclaim:
     description: Sell a claim
