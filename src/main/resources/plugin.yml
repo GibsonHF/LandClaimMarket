@@ -3,7 +3,6 @@ version: '${version}'
 main: me.gibson.landclaim.main.landclaimmarket.LandClaimMarket
 api-version: '1.20'
 author: Gibson
-depend: [GriefPrevention]
 description: LandClaimMarket for Griefprevention
 permissions:
   landclaimmarket.listclaims:
@@ -34,10 +33,10 @@ commands:
     description: Reload the plugin
     usage: /<command>
     permission: op
-  logcustoms:
+  logclaims:
     description: Log custom items in the current claim
     usage: /<command>
-    permission: landclaimmarket.logcustoms
+    permission: landclaimmarket.logclaims
   showupcoming:
     description: Show upcoming claims
     usage: /<command>
@@ -46,3 +45,7 @@ commands:
     description: Teleport to a claim
     usage: /<command> <claimid>
     permission: landclaimmarket.claimteleport
+  claimexpire:
+    description: Expire a claim
+    usage: /<command>
+    permission: landclaimmarket.claimexpire

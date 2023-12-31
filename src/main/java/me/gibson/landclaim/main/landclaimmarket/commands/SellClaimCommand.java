@@ -1,6 +1,7 @@
 package me.gibson.landclaim.main.landclaimmarket.commands;
 
 import me.gibson.landclaim.main.landclaimmarket.LandClaimMarket;
+import me.gibson.landclaim.main.landclaimmarket.utils.AsyncClaimLogger;
 import me.gibson.landclaim.main.landclaimmarket.utils.ClaimInfo;
 import me.ryanhamshire.GriefPrevention.Claim;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
@@ -102,7 +103,6 @@ public class SellClaimCommand implements CommandExecutor {
                 claim.getID(), Bukkit.getOfflinePlayer(claimInfo.getUUID()).getName(), formattedPrice, claim.getArea());
         String avatarUrl = "https://cravatar.eu/helmavatar/" + Bukkit.getOfflinePlayer(claimInfo.getUUID()).getUniqueId() + "/128"; // This URL will get the Minecraft avatar of the player
         plugin.inventoryListener.sendDiscordWebhook(content, avatarUrl);
-
 
         player.sendMessage("Your claim is now listed for sale at $" + price);
         return true;

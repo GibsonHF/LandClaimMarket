@@ -1,21 +1,19 @@
 package me.gibson.landclaim.main.landclaimmarket.listeners;
 
 import me.gibson.landclaim.main.landclaimmarket.LandClaimMarket;
+import me.gibson.landclaim.main.landclaimmarket.utils.AsyncClaimLogger;
 import me.gibson.landclaim.main.landclaimmarket.utils.ClaimInfo;
 import me.ryanhamshire.GriefPrevention.Claim;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
 import me.ryanhamshire.GriefPrevention.events.*;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.bukkit.*;
-import org.bukkit.block.*;
-import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
@@ -38,10 +36,6 @@ public class InventoryListener implements Listener {
     public static LandClaimMarket plugin;
 
     private final Map<UUID, BukkitTask> teleportTasks = new HashMap<>();
-
-    private BukkitTask logTask;
-
-    private BukkitTask task;
 
 
 
@@ -147,6 +141,9 @@ public class InventoryListener implements Listener {
                 plugin.getClaimsForSale().remove(claim);
                 event.getInventory().remove(clickedItem);
                 plugin.SaveClaims();
+                String content = createPurchaseContent(claim, claimInfo, BuyerID);
+                String avatarUrl = "https://cravatar.eu/helmavatar/" + Bukkit.getOfflinePlayer(BuyerID).getUniqueId() + "/128";
+                sendDiscordWebhook(content, avatarUrl);
                 player.sendMessage(ChatColor.GREEN + "You have purchased this claim for $" + claimInfo.getPrice());
                 player.closeInventory();
             }
@@ -224,8 +221,13 @@ public class InventoryListener implements Listener {
                 event.getInventory().remove(clickedItem);
                 player.sendMessage(ChatColor.GREEN + "You have unlisted this claim.");
                 player.closeInventory();
-            } else if (event.getSlot() == 25) {
-                // Log claim data
+            }else if(event.getSlot() == 25)
+            {
+                if(!player.hasPermission("landclaimmarket.claimlog"))
+                {
+                    player.sendMessage(ChatColor.RED + "You do not have permission to log claims.");
+                    return;
+                }
                 ItemStack clickedItem = event.getCurrentItem();
                 if (clickedItem == null || !clickedItem.hasItemMeta()) {
                     player.sendMessage(ChatColor.RED + "Invalid item.");
@@ -236,62 +238,16 @@ public class InventoryListener implements Listener {
                     player.sendMessage(ChatColor.RED + "This item does not represent a valid claim.");
                     return;
                 }
-
-                int claimId = meta.getCustomModelData();
-                Claim claim = GriefPrevention.instance.dataStore.getClaim(claimId);
-                ClaimInfo claimInfo = plugin.claimsForSale.get(claim);
-                UUID ownerUUID = claimInfo.getUUID();
-                OfflinePlayer owner = Bukkit.getOfflinePlayer(ownerUUID);
-                if(claimInfo == null) {
-                    player.sendMessage(ChatColor.RED + "This claim is no longer available.");
-                    removeClaim(claim);
-                    event.getInventory().remove(clickedItem);
-                    player.closeInventory();
-                    return;
-                }
-                if(owner.getPlayer() == null)
+                Claim claim = GriefPrevention.instance.dataStore.getClaim(meta.getCustomModelData());
+                if(claim == null)
                 {
-                    player.sendMessage(ChatColor.RED + "This claim is no longer available.");
-                    removeClaim(claim);
-                    event.getInventory().remove(clickedItem);
+                    player.sendMessage(ChatColor.RED + "This claim no longer exists.");
                     return;
                 }
-                if(!player.hasPermission("landclaimmarket.claimlog"))
-                {
-                    player.sendMessage(ChatColor.RED + "You cannot log a claim as you do not have permission.");
-                    return;
-                }
-                Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-                    List<Location> locations = new ArrayList<>();
-
-                    for (int x = claim.getLesserBoundaryCorner().getBlockX(); x <= claim.getGreaterBoundaryCorner().getBlockX(); x++) {
-                        for (int y = claim.getLesserBoundaryCorner().getBlockY(); y <= 300; y++) {
-                            for (int z = claim.getLesserBoundaryCorner().getBlockZ(); z <= claim.getGreaterBoundaryCorner().getBlockZ(); z++) {
-                                locations.add(new Location(claim.getLesserBoundaryCorner().getWorld(), x, y, z));
-                            }
-                        }
-                    }
-
-                    // Process the blocks synchronously
-                    Bukkit.getScheduler().runTask(plugin, () -> {
-                        List<Block> inventoryBlocks = new ArrayList<>();
-                        for (Location loc : locations) {
-                            Block block = loc.getBlock();
-                            if (block.getState() instanceof InventoryHolder) {
-                                inventoryBlocks.add(block);
-                            }
-                        }
-                        logCustomChestContents(claim, ownerUUID, inventoryBlocks);
-                        for (Player onlinePlayers : Bukkit.getOnlinePlayers()) {
-                            if (onlinePlayers.hasPermission("landclaimmarket.claimlog")) {
-                                onlinePlayers.sendMessage(ChatColor.GREEN + "Claim " + claim.getID() + " has expired and is now for sale");
-                            }
-                        }
-                    });
-                });
+                AsyncClaimLogger asyncClaimLogger = new AsyncClaimLogger(plugin);
+                asyncClaimLogger.logClaimAsync(claim);
                 player.closeInventory();
-
-
+                player.sendMessage(ChatColor.GREEN + "Claim has been logged.");
             }
         }
         else if(event.getView().getTitle().startsWith("Claims for Sale - Page "))
@@ -385,220 +341,42 @@ public class InventoryListener implements Listener {
         event.setCancelled(true);
 
         Claim claim = event.getClaim();
-        ClaimInfo claimInfo = plugin.claimsForSale.get(claim);
-        //log old owner
         UUID oldOwner = claim.ownerID;
         UUID taxId = UUID.fromString(plugin.getConfig().getString("options.systemID"));
         changeOwner(claim, taxId);
 
-        double price = plugin.getConfig().getDouble("options.claimPrice");
-        int blocks = claim.getArea();
-        price = price * blocks;
-        LocalDateTime dateAdded = LocalDateTime.now(); // Get the current date and time
+        double price = plugin.getConfig().getDouble("options.claimPrice") * claim.getArea();
+        LocalDateTime dateAdded = LocalDateTime.now();
 
         plugin.getClaimsForSale().put(claim, new ClaimInfo(taxId, price, claim.getID(), dateAdded));
         plugin.SaveClaims();
-        String content;
-        if(claimInfo == null) {
-            //make this content include EXPIRED CLAIM so people know difference in expired and regular sell
-            DecimalFormat df = new DecimalFormat("#,###");
-            double price1 = claimInfo.getPrice();
-            String formattedPrice = df.format(price1);
-            content = String.format("``EXPIRED CLAIM\n\nClaim ID: %s\n\nPrice: $%s\n\nArea size: %d blocks``",
-                    claim.getID(), formattedPrice, claim.getArea());
-            sendDiscordWebhook(content, "");
-        }else {
-            DecimalFormat df = new DecimalFormat("#,###");
-            double price1 = claimInfo.getPrice();
-            String formattedPrice = df.format(price1);
-            content = String.format("``EXPIRED CLAIM\n\nClaim ID: %s\n\nOld Owner: %s\n\nPrice: $%s\n\nArea size: %d blocks``",
-                    claim.getID(), Bukkit.getOfflinePlayer(claimInfo.getUUID()).getName(), formattedPrice, claim.getArea());
-            String avatarUrl = "https://cravatar.eu/helmavatar/" + Bukkit.getOfflinePlayer(claimInfo.getUUID()).getUniqueId() + "/128";
-            sendDiscordWebhook(content, avatarUrl);
-        }
 
-        if(plugin.getConfig().getBoolean("options.logExpiredClaims")) {
-
-            Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-                List<Location> locations = new ArrayList<>();
-
-                for (int x = claim.getLesserBoundaryCorner().getBlockX(); x <= claim.getGreaterBoundaryCorner().getBlockX(); x++) {
-                    for (int y = 0; y <= 300; y++) {
-                        for (int z = claim.getLesserBoundaryCorner().getBlockZ(); z <= claim.getGreaterBoundaryCorner().getBlockZ(); z++) {
-                            if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.AIR) {
-                                continue;
-                            }
-                            if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.CAVE_AIR) {
-                                continue;
-                            }
-                            if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.STONE) {
-                                continue;
-                            }
-
-                            if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.GRASS_BLOCK) {
-                                continue;
-                            }
-
-                            if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.DIRT) {
-                                continue;
-                            }
-
-                            if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.COBBLESTONE) {
-                                continue;
-                            }
-
-                            if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.SAND) {
-                                continue;
-                            }
-
-                            if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.SANDSTONE) {
-                                continue;
-                            }
-
-                            if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.GRAVEL) {
-                                continue;
-                            }
-
-                            if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.WATER) {
-                                continue;
-                            }
-
-                            if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.LAVA) {
-                                continue;
-                            }
-
-                            if(claim.getLesserBoundaryCorner().getWorld().getBlockAt(x, y, z).getType() == Material.BEDROCK) {
-                                continue;
-                            }
-
-
-                            locations.add(new Location(claim.getLesserBoundaryCorner().getWorld(), x, y, z));
-                        }
-                    }
-                }
-
-                // Process the blocks in smaller batches synchronously
-                int batchSize = 1000; // Adjust this value as needed
-                List<List<Location>> batches = new ArrayList<>();
-                for (int i = 0; i < locations.size(); i += batchSize) {
-                    batches.add(locations.subList(i, Math.min(i + batchSize, locations.size())));
-                }
-
-                for (List<Location> batch : batches) {
-                    Bukkit.getScheduler().runTask(plugin, () -> {
-                        List<Block> inventoryBlocks = new ArrayList<>();
-                        for (Location loc : batch) {
-                            Block block = loc.getBlock();
-                            if (block.getState() instanceof InventoryHolder) {
-                                inventoryBlocks.add(block);
-                            }
-                        }
-                        logCustomChestContents(claim, oldOwner, inventoryBlocks);
-                        for (Player onlinePlayers : Bukkit.getOnlinePlayers()) {
-                            if (onlinePlayers.hasPermission("landclaimmarket.claimlog")) {
-                                onlinePlayers.sendMessage(ChatColor.GREEN + "Claim " + claim.getID() + " has expired and is now for sale");
-                            }
-                        }
-                    });
-                }
-            });
-        }
+        ClaimInfo claimInfo = new ClaimInfo(oldOwner, price, claim.getID(), dateAdded);
+        String content = createContent(claim, claimInfo);
+        String avatarUrl = "https://cravatar.eu/helmavatar/" + Bukkit.getOfflinePlayer(claimInfo.getUUID()).getUniqueId() + "/128";
+        sendDiscordWebhook(content, avatarUrl);
     }
 
-    public void logCustomChestContents(Claim claim, UUID oldOwner, List<Block> blocks) {
-        // Gather all necessary data before running the task
-        String claimId = claim.getID().toString();
-        Map<String, Map<String, List<Map<String, Object>>>> normalItemsMap = new HashMap<>();
-        Map<String, Map<String, List<Map<String, Object>>>> customItemsMap = new HashMap<>();
-
-        // Create a queue from the blocks list
-        Queue<Block> blockQueue = new LinkedList<>(blocks);
-        if (blocks.isEmpty()) {
-            System.err.println("Error: The blocks list is empty.");
-            return;
-        }
-        // Create a repeating task that processes one block from the queue every tick
-        logTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            if (!blockQueue.isEmpty()) {
-                for (int i = 0; i < 10 && !blockQueue.isEmpty(); i++) {
-                    Block block = blockQueue.poll(); // Retrieve and remove the head of the queue
-
-                    if (block.getState() instanceof InventoryHolder) {
-                        InventoryHolder holder = (InventoryHolder) block.getState();
-                        Inventory inv = holder.getInventory();
-                        Location loc = block.getLocation();
-                        String locKey = loc.getWorld().getName() + "," + loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ();
-                        String blockType = block.getType().toString();
-
-                        Map<String, List<Map<String, Object>>> normalBlockTypeMap = normalItemsMap.getOrDefault(locKey, new HashMap<>());
-                        Map<String, List<Map<String, Object>>> customBlockTypeMap = customItemsMap.getOrDefault(locKey, new HashMap<>());
-                        List<Map<String, Object>> normalItemList = normalBlockTypeMap.getOrDefault(blockType, new ArrayList<>());
-                        List<Map<String, Object>> customItemList = customBlockTypeMap.getOrDefault(blockType, new ArrayList<>());
-
-                        for (ItemStack item : inv.getContents()) {
-                            if (item != null && item.hasItemMeta()) {
-                                ItemMeta meta = item.getItemMeta();
-                                Map<String, Object> itemData = new HashMap<>();
-                                itemData.put("itemType", item.getType().toString());
-                                itemData.put("displayName", meta.getDisplayName());
-                                itemData.put("oldOwner", oldOwner.toString());
-                                itemData.put("amount", item.getAmount());
-                                if (meta.hasCustomModelData()) {
-                                    itemData.put("customModelData", meta.getCustomModelData());
-                                    customItemList.add(itemData);
-                                } else {
-                                    normalItemList.add(itemData);
-                                }
-                                if (meta.hasLore()) {
-                                    itemData.put("lore", meta.getLore());
-                                }
-                            }
-                        }
-
-                        // Only add the itemLists to the blockTypeMaps if they're not empty
-                        if (!normalItemList.isEmpty()) {
-                            normalBlockTypeMap.put(blockType, normalItemList);
-                            normalItemsMap.put(locKey, normalBlockTypeMap);
-                        }
-                        if (!customItemList.isEmpty()) {
-                            customBlockTypeMap.put(blockType, customItemList);
-                            customItemsMap.put(locKey, customBlockTypeMap);
-                        }
-                    }
-                }
-            } else {
-                // Cancel the task and save the data to the file when all blocks have been processed
-                task = Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-                    File dirNormals = new File(plugin.getDataFolder(), "Normals");
-                    File dirCustoms = new File(plugin.getDataFolder(), "Customs");
-                    dirNormals.mkdirs(); // Create the directory if it doesn't exist
-                    dirCustoms.mkdirs(); // Create the directory if it doesn't exist
-
-                    File fileNormals = new File(dirNormals, claimId + ".yml");
-                    File fileCustoms = new File(dirCustoms, claimId + ".yml");
-                    YamlConfiguration configNormals = YamlConfiguration.loadConfiguration(fileNormals);
-                    YamlConfiguration configCustoms = YamlConfiguration.loadConfiguration(fileCustoms);
-
-                    configNormals.set("items", normalItemsMap);
-                    configCustoms.set("items", customItemsMap);
-
-                    try {
-                        configNormals.save(fileNormals);
-                        configCustoms.save(fileCustoms);
-                        System.out.println("Saved files: " + fileNormals.getPath() + ", " + fileCustoms.getPath());
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                        System.err.println("Error: An exception was thrown during the execution of the task.");
-                        System.out.println("Failed to save files: " + fileNormals.getPath() + ", " + fileCustoms.getPath());
-                    }
-                });
-                logTask.cancel();
-                task.cancel();
-            }
-        }, 0L, 1L);
-
+    private String createContent(Claim claim, ClaimInfo claimInfo) {
+        DecimalFormat df = new DecimalFormat("#,###");
+        double price = claimInfo.getPrice();
+        String formattedPrice = df.format(price);
+        return String.format("``EXPIRED CLAIM\n\nClaim ID: %s\n\nOld Owner: %s\n\nPrice: $%s\n\nArea size: %d blocks``",
+                claim.getID(), Bukkit.getOfflinePlayer(claimInfo.getUUID()).getName(), formattedPrice, claim.getArea());
     }
 
+    //create Purchase content which is just basic code message saying player bought x claim from x player for x price
+    private String createPurchaseContent(Claim claim, ClaimInfo claimInfo, UUID buyerID) {
+        DecimalFormat df = new DecimalFormat("#,###");
+        double price = claimInfo.getPrice();
+        String formattedPrice = df.format(price);
+        //include new owner as well as old owner
+        //lets just make it a 1 liner in `` block saying buyerid bought claimid for price no new lines
+        return String.format("``%s Purchased Claim %s for %s. Area size: %d blocks``",
+                Bukkit.getOfflinePlayer(buyerID).getName(), claim.getID(), formattedPrice, claim.getArea());
+//        return String.format("``PURCHASED CLAIM\n\nClaim ID: %s\n\nNew Owner: %s\n\nPrice: $%s\n\nArea size: %d blocks``",
+//                claim.getID(), Bukkit.getOfflinePlayer(buyerID).getName(), formattedPrice, claim.getArea());
+    }
 
     public static Inventory confirmPurchaseInventory(int claimId, Player player) {
         Inventory inv = Bukkit.createInventory(null, 27, "Confirm Purchase");
@@ -607,10 +385,10 @@ public class InventoryListener implements Listener {
         inv.setItem(13, createItem(Material.ENDER_PEARL, ChatColor.LIGHT_PURPLE + "Teleport to Claim", claimId));
         inv.setItem(15, createItem(Material.RED_STAINED_GLASS_PANE, ChatColor.RED + "Cancel Purchase", claimId));
         inv.setItem(26, createItem(Material.BARRIER, ChatColor.RED + "Unlist Claim", claimId));
-        //only add this if the player in the gui has permission to log claims
         if(player.hasPermission("landclaimmarket.claimlog"))
-            inv.setItem(25, createItem(Material.MAP, ChatColor.GRAY + "Log Claim Data", claimId));
-
+        {
+            inv.setItem(25, createItem(Material.WRITABLE_BOOK, ChatColor.GOLD + "Log Claim", claimId));
+        }
         fillEmptySlots(inv, Material.GRAY_STAINED_GLASS_PANE, ChatColor.GRAY + " ");
 
         return inv;
@@ -775,9 +553,9 @@ public class InventoryListener implements Listener {
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             List<Claim> upcomingExpiredClaims = new ArrayList<>();
             for (Claim claim : getAllClaims()) {
-                Claim storedClaim = GriefPrevention.instance.dataStore.getClaim(claim.getID());
-                if (storedClaim == null) {
-                    continue; // Skip this claim if it doesn't exist in the data store
+                LocalDateTime expirationDate = getExpirationDate(claim);
+                if (expirationDate == null) {
+                    continue; // Skip this claim if the expiration date is null
                 }
                 if (isAboutToExpire(claim)) {
                     upcomingExpiredClaims.add(claim);
@@ -881,7 +659,7 @@ public class InventoryListener implements Listener {
         LocalDateTime lastOnline = LocalDateTime.ofInstant(Instant.ofEpochMilli(lastPlayed), ZoneId.systemDefault());
 
         // Assuming claims expire 90 days after the owner was last online
-        LocalDateTime expirationDate = lastOnline.plusDays(90);
+        LocalDateTime expirationDate = lastOnline.plusDays(75);
 
         return expirationDate;
     }

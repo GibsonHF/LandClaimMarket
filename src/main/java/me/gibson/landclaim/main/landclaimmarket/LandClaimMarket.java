@@ -2,6 +2,7 @@ package me.gibson.landclaim.main.landclaimmarket;
 
 import me.gibson.landclaim.main.landclaimmarket.commands.*;
 import me.gibson.landclaim.main.landclaimmarket.listeners.InventoryListener;
+import me.gibson.landclaim.main.landclaimmarket.utils.AsyncClaimLogger;
 import me.gibson.landclaim.main.landclaimmarket.utils.ClaimInfo;
 import me.ryanhamshire.GriefPrevention.Claim;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
@@ -20,6 +21,8 @@ import java.util.*;
 public final class LandClaimMarket extends JavaPlugin {
     private static Economy econ = null;
 
+    public AsyncClaimLogger asyncClaimLogger;
+
     public HashMap<Claim, ClaimInfo> claimsForSale = new HashMap<Claim, ClaimInfo>();
     public InventoryListener inventoryListener = new InventoryListener(this);
 
@@ -28,11 +31,13 @@ public final class LandClaimMarket extends JavaPlugin {
         this.getCommand("sellclaim").setExecutor(new SellClaimCommand(this));
         this.getCommand("listrealestate").setExecutor(new ListClaimsCommand(this));
         this.getCommand("reloadrealestate").setExecutor(new ReloadConfigCommand(this));
-        this.getCommand("logcustoms").setExecutor(new LogCustomsCommand(this, inventoryListener));
         this.getCommand("showupcoming").setExecutor(new ShowUpcomingCommand(this));
         this.getCommand("claimteleport").setExecutor(new me.gibson.landclaim.main.landclaimmarket.commands.ClaimTeleportCommand(this));
+        this.getCommand("claimexpire").setExecutor(new ClaimExpireCommand(this));
+        this.getCommand("logclaims").setExecutor(new LogClaimsCommand(this));
         getServer().getPluginManager().registerEvents(new InventoryListener(this), this);
         inventoryListener = new InventoryListener(this);
+        asyncClaimLogger = new AsyncClaimLogger(this);
         if(!getDataFolder().exists()) {
             getDataFolder().mkdir();
         }
