@@ -58,6 +58,7 @@ public class ClaimTeleportCommand implements CommandExecutor {
                 }
             }
             player.teleport(center);
+            plugin.inventoryListener.showClaimBorderWithParticles(player, claim);
             return true;
         }
         return false;

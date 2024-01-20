@@ -1,5 +1,29 @@
-options:
-  systemID: '0dcc6633-6179-49ab-9754-a79e5938720e' # this is the account that receives the claim and money from expired claims
-  claimPrice: 1500 # this is the price of a expired claim * claim area size
-  logExpiredClaims: true # this will log expired claims to the console
-  enableClaimExpiration: true # this will enable claim expiration to auto add to the market
+settings:
+  claimPrice: 750
+  systemID: 'Hack_the_Gibson'
+messages:
+  claimSold: '&aYou have sold your claim for &e%price%&a.'
+  claimNotForSale: '&cThis claim is not for sale.'
+  claimNotOwned: '&cYou do not own this claim.'
+  claimAlreadyForSale: '&cThis claim is already for sale.'
+  invalidItem: '&cInvalid item.'
+  noClaimsForSale: '&cNo claims for sale.'
+  claimNoLongerExists: '&cThis claim no longer exists.'
+  claimNoLongerAvailable: '&cThis claim is no longer available.'
+  claimPurchased: '&aYou have purchased this claim for &e%price%&a.'
+  claimTeleporting: '&aTeleporting to claim in 5 seconds.'
+  claimTeleported: '&aYou have teleported to this claim.'
+  claimUnlisted: '&aYou have unlisted this claim.'
+  claimLogged: '&aClaim has been logged.'
+  claimDoesNotExist: '&cThis claim does not exist.'
+  teleportingToClaim: '&aTeleporting to claim in 5 seconds...'
+  teleportedToClaim: '&aYou have been teleported to the claim.'
+  cannotUnlistNotOwned: '&cYou cannot unlist a claim that you do not own.'
+  noPermissionToLogClaims: '&cYou do not have permission to log claims.'
+  invalidClaimItem: '&cThis item does not represent a valid claim.'
+  cannotPurchaseOwnClaim: '&cYou cannot purchase your own claim.'
+  notEnoughMoney: '&cYou do not have enough money to purchase this claim. You have
+    &e%current_balance%&c, but the claim costs &e%claim_price%&c.'
+booleans:
+  enableClaimExpiration: true
+  requireMoney: true

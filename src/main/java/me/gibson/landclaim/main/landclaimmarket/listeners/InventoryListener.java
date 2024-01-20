@@ -1,5 +1,6 @@
 package me.gibson.landclaim.main.landclaimmarket.listeners;
 
+import com.griefprevention.visualization.VisualizationType;
 import me.gibson.landclaim.main.landclaimmarket.LandClaimMarket;
 import me.gibson.landclaim.main.landclaimmarket.utils.AsyncClaimLogger;
 import me.gibson.landclaim.main.landclaimmarket.utils.ClaimInfo;
@@ -18,6 +19,7 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
+import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.io.*;
@@ -32,9 +34,14 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.Comparator;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 public class InventoryListener implements Listener {
     public static LandClaimMarket plugin;
+
+    private String currentSortType = "oldest"; // Add this field to store the current sort type
+    private String[] sortTypes = {"oldest", "newest", "biggest", "smallest"}; // Add this field to store the sort types
+    private int currentSortIndex = Arrays.asList(sortTypes).indexOf(currentSortType); // Initialize currentSortIndex based on currentSortType
 
     private final Map<UUID, BukkitTask> teleportTasks = new HashMap<>();
 
@@ -125,7 +132,7 @@ public class InventoryListener implements Listener {
             Claim claim = GriefPrevention.instance.dataStore.getClaim(claimId);
 
             if (claim == null) {
-                player.sendMessage(ChatColor.RED + "This claim no longer exists.");
+                plugin.getSettings().sendPlayerMessage(player, "claimNoLongerExists");
                 return;
             }
 
@@ -138,11 +145,12 @@ public class InventoryListener implements Listener {
             }
 
             player.closeInventory();
-            player.sendMessage(ChatColor.YELLOW + "Teleporting to claim in 5 seconds.");
+            plugin.getSettings().sendPlayerMessage(player, "teleportingToClaim");
             teleportTasks.put(player.getUniqueId(), Bukkit.getScheduler().runTaskLater(plugin, () -> {
                 player.teleport(center);
-                player.sendMessage(ChatColor.GREEN + "You have teleported to this claim.");
+                plugin.getSettings().sendPlayerMessage(player, "teleportedToClaim");
                 player.closeInventory();
+                showClaimBorderWithParticles(player, claim);
                 teleportTasks.remove(player.getUniqueId()); // Remove the task after teleporting
             }, 5 * 20L));
         }
@@ -161,6 +169,16 @@ public class InventoryListener implements Listener {
         }
 
         if(event.getView().getTitle().startsWith("Upcoming Expired Claims - Page")) {
+            ItemStack clickedItem = event.getCurrentItem();
+            if (clickedItem != null && clickedItem.hasItemMeta() && clickedItem.getItemMeta().hasLore()) {
+                currentSortIndex = (currentSortIndex + 1) % sortTypes.length; // Update the current sort index
+                String sortType = sortTypes[currentSortIndex]; // Get the new sort type
+                getUpcomingExpiredClaims(upcomingExpiredClaims -> {
+                    List<Claim> sortedClaims = sortClaims(upcomingExpiredClaims, sortType);
+                    Inventory newInv = createUpcomingExpiredClaimsGUI(sortedClaims, 1); // Open the first page
+                    player.openInventory(newInv);
+                });
+            }
             if (event.getSlot() == 48 || event.getSlot() == 50) {
                 String title = event.getView().getTitle();
                 int currentPage = extractPageNumber(title); // Extract the current page number from the title
@@ -187,12 +205,12 @@ public class InventoryListener implements Listener {
             if(event.getSlot() == 11) {
                 ItemStack clickedItem = event.getCurrentItem();
                 if (clickedItem == null || !clickedItem.hasItemMeta()) {
-                    player.sendMessage(ChatColor.RED + "Invalid item.");
+                    plugin.getSettings().sendPlayerMessage(player, "invalidItem");
                     return;
                 }
                 ItemMeta meta = clickedItem.getItemMeta();
                 if (!meta.hasCustomModelData()) {
-                    player.sendMessage(ChatColor.RED + "This item does not represent a valid claim.");
+                    plugin.getSettings().sendPlayerMessage(player, "invalidClaimItem");
                     return;
                 }
 
@@ -202,14 +220,15 @@ public class InventoryListener implements Listener {
                 UUID ownerUUID = claimInfo.getUUID();
                 OfflinePlayer owner = Bukkit.getOfflinePlayer(ownerUUID);
                 if(claim.ownerID.equals(player.getUniqueId())) {
-                    player.sendMessage(ChatColor.RED + "You cannot purchase your own claim.");
+                    plugin.getSettings().sendPlayerMessage(player, "cannotPurchaseOwnClaim");
                     return;
                 }
                 UUID BuyerID = player.getUniqueId();
                 if(plugin.getEconomy().getBalance(player) <= claimInfo.getPrice()) {
-                    player.sendMessage(ChatColor.RED + "You do not have enough money to purchase this claim. You have "
-                            + ChatColor.GREEN + plugin.getEconomy().getBalance(player) + ChatColor.RED
-                            + " and the claim costs " + ChatColor.GREEN + claimInfo.getPrice());
+                    HashMap<String, String> placeholders = new HashMap<>();
+                    placeholders.put("current_balance", String.format("%.2f", plugin.getEconomy().getBalance(player)));
+                    placeholders.put("claim_price", String.format("%.2f", claimInfo.getPrice()));
+                    plugin.getSettings().sendPlayerMessage(player, "notEnoughMoney", placeholders);
                     return;
                 }
                 plugin.getEconomy().withdrawPlayer(player, claimInfo.getPrice());
@@ -233,18 +252,18 @@ public class InventoryListener implements Listener {
                 String content = createPurchaseContent(claim, claimInfo, BuyerID);
                 String avatarUrl = "https://cravatar.eu/helmavatar/" + Bukkit.getOfflinePlayer(BuyerID).getUniqueId() + "/128";
                 sendDiscordWebhook(content, avatarUrl);
-                player.sendMessage(ChatColor.GREEN + "You have purchased this claim for $" + claimInfo.getPrice());
+                plugin.getSettings().sendPlayerMessage(player, "claimPurchased", claimInfo.getPrice());
                 player.closeInventory();
             }
             else if(event.getSlot() == 13) {
                 ItemStack clickedItem = event.getCurrentItem();
                 if (clickedItem == null || !clickedItem.hasItemMeta()) {
-                    player.sendMessage(ChatColor.RED + "Invalid item.");
+                    plugin.getSettings().sendPlayerMessage(player, "invalidItem");
                     return;
                 }
                 ItemMeta meta = clickedItem.getItemMeta();
                 if (!meta.hasCustomModelData()) {
-                    player.sendMessage(ChatColor.RED + "This item does not represent a valid claim.");
+                    plugin.getSettings().sendPlayerMessage(player, "invalidClaimItem");
                     return;
                 }
 
@@ -259,11 +278,12 @@ public class InventoryListener implements Listener {
                     }
                 }
                 player.closeInventory();
-                player.sendMessage(ChatColor.YELLOW + "Teleporting to claim in 5 seconds.");
+                plugin.getSettings().sendPlayerMessage(player, "teleportingToClaim");
                 teleportTasks.put(player.getUniqueId(), Bukkit.getScheduler().runTaskLater(plugin, () -> {
                     player.teleport(center);
-                    player.sendMessage(ChatColor.GREEN + "You have teleported to this claim.");
+                    plugin.getSettings().sendPlayerMessage(player, "teleportedToClaim");
                     player.closeInventory();
+                    showClaimBorderWithParticles(player, claim);
                     teleportTasks.remove(player.getUniqueId()); // Remove the task after teleporting
                 }, 5 * 20L));
             }
@@ -273,12 +293,12 @@ public class InventoryListener implements Listener {
             {
                 ItemStack clickedItem = event.getCurrentItem();
                 if (clickedItem == null || !clickedItem.hasItemMeta()) {
-                    player.sendMessage(ChatColor.RED + "Invalid item.");
+                    plugin.getSettings().sendPlayerMessage(player, "invalidItem");
                     return;
                 }
                 ItemMeta meta = clickedItem.getItemMeta();
                 if (!meta.hasCustomModelData()) {
-                    player.sendMessage(ChatColor.RED + "This item does not represent a valid claim.");
+                    plugin.getSettings().sendPlayerMessage(player, "invalidClaimItem");
                     return;
                 }
 
@@ -288,7 +308,7 @@ public class InventoryListener implements Listener {
                 UUID ownerUUID = claimInfo.getUUID();
                 OfflinePlayer owner = Bukkit.getOfflinePlayer(ownerUUID);
                 if(claimInfo == null) {
-                    player.sendMessage(ChatColor.RED + "This claim is no longer available.");
+                    plugin.getSettings().sendPlayerMessage(player, "claimNoLongerAvailable");
                     removeClaim(claim);
                     event.getInventory().remove(clickedItem);
                     player.closeInventory();
@@ -296,41 +316,45 @@ public class InventoryListener implements Listener {
                 }
                 if(owner.getPlayer() == null)
                 {
-                    player.sendMessage(ChatColor.RED + "This claim is no longer available.");
+                    plugin.getSettings().sendPlayerMessage(player, "claimNoLongerAvailable");
                     removeClaim(claim);
                     event.getInventory().remove(clickedItem);
                     return;
                 }
                 if(owner.getPlayer().getName() != player.getName() || !player.hasPermission("landclaimmarket.unlist"))
                 {
-                    player.sendMessage(ChatColor.RED + "You cannot unlist a claim you do not own.");
+                    plugin.getSettings().sendPlayerMessage(player, "cannotUnlistNotOwned");
                     return;
                 }
                 removeClaim(claim);
                 event.getInventory().remove(clickedItem);
-                player.sendMessage(ChatColor.GREEN + "You have unlisted this claim.");
+                plugin.getSettings().sendPlayerMessage(player, "claimUnlisted");
+                //discord webhook here
+                String content = createunlistedContent(claim, claimInfo);
+                String avatarUrl = "https://cravatar.eu/helmavatar/" + Bukkit.getOfflinePlayer(ownerUUID).getUniqueId() + "/128";
+                sendDiscordWebhook(content, avatarUrl);
                 player.closeInventory();
             }else if(event.getSlot() == 25)
             {
                 if(!player.hasPermission("landclaimmarket.claimlog"))
                 {
-                    player.sendMessage(ChatColor.RED + "You do not have permission to log claims.");
+                    plugin.getSettings().sendPlayerMessage(player, "noPermissionToLogClaims");
                     return;
                 }
                 ItemStack clickedItem = event.getCurrentItem();
                 if (clickedItem == null || !clickedItem.hasItemMeta()) {
-                    player.sendMessage(ChatColor.RED + "Invalid item.");
+                    plugin.getSettings().sendPlayerMessage(player, "invalidItem");
                     return;
                 }
                 ItemMeta meta = clickedItem.getItemMeta();
                 if (!meta.hasCustomModelData()) {
-                    player.sendMessage(ChatColor.RED + "This item does not represent a valid claim.");
+                    plugin.getSettings().sendPlayerMessage(player, "invalidClaimItem");
                     return;
                 }
                 Claim claim = GriefPrevention.instance.dataStore.getClaim(meta.getCustomModelData());
                 if(claim == null)
                 {
-                    player.sendMessage(ChatColor.RED + "This claim no longer exists.");
+                    plugin.getSettings().sendPlayerMessage(player, "claimNoLongerExists");
                     return;
                 }
                 AsyncClaimLogger asyncClaimLogger = new AsyncClaimLogger(plugin);
@@ -344,12 +368,12 @@ public class InventoryListener implements Listener {
             if (event.isLeftClick()) {
                 ItemStack clickedItem = event.getCurrentItem();
                 if (clickedItem == null || !clickedItem.hasItemMeta()) {
-                    player.sendMessage(ChatColor.RED + "Invalid item.");
+                    plugin.getSettings().sendPlayerMessage(player, "invalidItem");
                     return;
                 }
                 ItemMeta meta = clickedItem.getItemMeta();
                 if (!meta.hasCustomModelData()) {
-                    player.sendMessage(ChatColor.RED + "This item does not represent a valid claim.");
+                    plugin.getSettings().sendPlayerMessage(player, "invalidClaimItem");
                     return;
                 }
 
@@ -357,25 +381,26 @@ public class InventoryListener implements Listener {
                 Claim claim = GriefPrevention.instance.dataStore.getClaim(claimId);
                 ClaimInfo claimInfo = plugin.claimsForSale.get(claim);
                 if (claimInfo == null) {
-                    player.sendMessage(ChatColor.RED + "This claim is no longer available.");
+                    plugin.getSettings().sendPlayerMessage(player, "claimNoLongerAvailable");
                     removeClaim(claim);
                     event.getInventory().remove(clickedItem);
                     player.closeInventory();
                     return;
                 }
                 if (claim.ownerID == null) {
-                    player.sendMessage(ChatColor.RED + "This claim is not for sale.");
+                    plugin.getSettings().sendPlayerMessage(player, "claimNotForSale");
                     return;
                 }
                 UUID BuyerID = player.getUniqueId();
                 if (claim.ownerID == null) {
-                    player.sendMessage(ChatColor.RED + "This claim does not exist.");
+                    plugin.getSettings().sendPlayerMessage(player, "claimDoesNotExist");
                     return;
                 }
-                if (plugin.getEconomy().getBalance(player) <= claimInfo.getPrice() && !player.hasPermission("landclaimmarket.bypass")) {
-                    player.sendMessage(ChatColor.RED + "You do not have enough money to purchase this claim. You have "
-                            + ChatColor.GREEN + plugin.getEconomy().getBalance(player) + ChatColor.RED
-                            + " and the claim costs " + ChatColor.GREEN + claimInfo.getPrice());
+                if (plugin.getEconomy().getBalance(player) <= claimInfo.getPrice() && !player.hasPermission("landclaimmarket.bypass") && plugin.getConfig().getBoolean("booleans.requireMoney")) {
+                    HashMap<String, String> placeholders = new HashMap<>();
+                    placeholders.put("current_balance", String.format("%.2f", plugin.getEconomy().getBalance(player)));
+                    placeholders.put("claim_price", String.format("%.2f", claimInfo.getPrice()));
+                    plugin.getSettings().sendPlayerMessage(player, "notEnoughMoney", placeholders);
                     return;
                 }
                 //open a confirmation gui with teleport or purchase buttons
@@ -424,17 +449,17 @@ public class InventoryListener implements Listener {
 
     @EventHandler
     public void onClaimExpiration(ClaimExpirationEvent event) {
-        if(!plugin.getConfig().getBoolean("options.enableClaimExpiration")) {
+        if(!plugin.getConfig().getBoolean("booleans.enableClaimExpiration")) {
             return;
         }
         event.setCancelled(true);
 
         Claim claim = event.getClaim();
         UUID oldOwner = claim.ownerID;
-        UUID taxId = UUID.fromString(plugin.getConfig().getString("options.systemID"));
+        UUID taxId = UUID.fromString(Bukkit.getOfflinePlayer(plugin.getConfig().getString("settings.systemID")).getUniqueId().toString());
         changeOwner(claim, taxId);
 
-        double price = plugin.getConfig().getDouble("options.claimPrice") * claim.getArea();
+        double price = plugin.getConfig().getDouble("settings.claimPrice") * claim.getArea();
         LocalDateTime dateAdded = LocalDateTime.now();
 
         plugin.getClaimsForSale().put(claim, new ClaimInfo(taxId, price, claim.getID(), dateAdded));
@@ -454,6 +479,16 @@ public class InventoryListener implements Listener {
                 claim.getID(), Bukkit.getOfflinePlayer(claimInfo.getUUID()).getName(), formattedPrice, claim.getArea());
     }
 
+    private String createunlistedContent(Claim claim, ClaimInfo claimInfo) {
+        DecimalFormat df = new DecimalFormat("#,###");
+        double price = claimInfo.getPrice();
+        String formattedPrice = df.format(price);
+        //make it say Player unlisted claim
+
+        return String.format("``UNLISTED CLAIM\n\nClaim ID: %s\n\nOwner: %s\n\nPrice: $%s\n\nArea size: %d blocks``",
+                claim.getID(), Bukkit.getOfflinePlayer(claimInfo.getUUID()).getName(), formattedPrice, claim.getArea());
+    }
+
     //create Purchase content which is just basic code message saying player bought x claim from x player for x price
     private String createPurchaseContent(Claim claim, ClaimInfo claimInfo, UUID buyerID) {
         DecimalFormat df = new DecimalFormat("#,###");
@@ -469,11 +504,14 @@ public class InventoryListener implements Listener {
 
     public static Inventory confirmPurchaseInventory(int claimId, Player player) {
         Inventory inv = Bukkit.createInventory(null, 27, "Confirm Purchase");
-
+        Claim claim = GriefPrevention.instance.dataStore.getClaim(claimId);
         inv.setItem(11, createItem(Material.GREEN_STAINED_GLASS_PANE, ChatColor.GREEN + "Confirm Purchase", claimId));
         inv.setItem(13, createItem(Material.ENDER_PEARL, ChatColor.LIGHT_PURPLE + "Teleport to Claim", claimId));
         inv.setItem(15, createItem(Material.RED_STAINED_GLASS_PANE, ChatColor.RED + "Cancel Purchase", claimId));
-        inv.setItem(26, createItem(Material.BARRIER, ChatColor.RED + "Unlist Claim", claimId));
+        if(player.hasPermission("landclaimmarket.unlist") || claim.ownerID.equals(player.getUniqueId()))
+        {
+            inv.setItem(26, createItem(Material.BARRIER, ChatColor.RED + "Unlist Claim", claimId));
+        }
         if(player.hasPermission("landclaimmarket.claimlog"))
         {
             inv.setItem(25, createItem(Material.WRITABLE_BOOK, ChatColor.GOLD + "Log Claim", claimId));
@@ -606,6 +644,10 @@ public class InventoryListener implements Listener {
 
     public void changeOwner(Claim claim, UUID newOwner) {
         GriefPrevention.instance.dataStore.changeClaimOwner(claim, newOwner);
+        ArrayList<String> managers = claim.managers;
+        for (String manager : managers) {
+            claim.dropPermission(manager);
+        }
     }
 
     private int extractPageNumber(String title) {
@@ -650,7 +692,7 @@ public class InventoryListener implements Listener {
                     upcomingExpiredClaims.add(claim);
                 }
             }
-            upcomingExpiredClaims.sort(Comparator.comparing(this::getExpirationDate).reversed());
+            upcomingExpiredClaims.sort(Comparator.comparing(this::getExpirationDate));
             Bukkit.getScheduler().runTask(plugin, () -> callback.accept(upcomingExpiredClaims));
         });
     }
@@ -696,6 +738,11 @@ public class InventoryListener implements Listener {
             inv.addItem(createClaimItem2(claim));
         }
 
+        //pretty up the colors
+        inv.setItem(49, createSortButton(Material.HOPPER, ChatColor.GREEN + "Sort List " + sortTypes[currentSortIndex].toUpperCase(), sortTypes[currentSortIndex]));
+        //inv.setItem(49, createSortButton(Material.HOPPER, "Sort by: " + sortTypes[currentSortIndex].toUpperCase(), sortTypes[currentSortIndex])); // Display the current sort type
+
+
         // Add navigation items
         if (page > 1) {
             // Add a "previous page" item if this isn't the first page
@@ -708,10 +755,32 @@ public class InventoryListener implements Listener {
 
         return inv;
     }
+    private ItemStack createSortButton(Material material, String displayName, String sortType) {
+        ItemStack item = new ItemStack(material, 1);
+        ItemMeta meta = item.getItemMeta();
+        meta.setDisplayName(displayName);
+        meta.setLore(Collections.singletonList(ChatColor.DARK_AQUA+"Sort Type: "+ ChatColor.GREEN + sortType));
+        item.setItemMeta(meta);
+        return item;
+    }
+    private List<Claim> sortClaims(List<Claim> claims, String sortType) {
+        switch (sortType) {
+            case "oldest":
+                return claims.stream().sorted(Comparator.comparing(this::getExpirationDate)).collect(Collectors.toList());
+            case "newest":
+                return claims.stream().sorted(Comparator.comparing(this::getExpirationDate).reversed()).collect(Collectors.toList());
+            case "biggest":
+                return claims.stream().sorted(Comparator.comparing(Claim::getArea).reversed()).collect(Collectors.toList());
+            case "smallest":
+                return claims.stream().sorted(Comparator.comparing(Claim::getArea)).collect(Collectors.toList());
+            default:
+                return claims;
+        }
+    }
 
     private ItemStack createClaimItem2(Claim claim) {
-        ItemStack item = new ItemStack(Material.PAPER); // Change this to the material you want
-        ItemMeta meta = item.getItemMeta();
+        ItemStack item = new ItemStack(Material.PLAYER_HEAD); // Change this to the material you want
+        SkullMeta meta = (SkullMeta) item.getItemMeta(); // Cast the ItemMeta to SkullMeta
 
         LocalDateTime expirationDate = getExpirationDate(claim);
         Duration timeUntilExpiration = Duration.between(LocalDateTime.now(), expirationDate);
@@ -723,9 +792,13 @@ public class InventoryListener implements Listener {
 
         meta.setDisplayName("Claim ID: " + claim.getID());
         List<String> lore = new ArrayList<>();
-        lore.add("Expires on: " + formattedExpirationDate);
+        lore.add(ChatColor.DARK_AQUA + "Expires on: " + ChatColor.YELLOW + formattedExpirationDate);
+        lore.add(ChatColor.BLUE + "Time until expiration: " + ChatColor.RED + hoursUntilExpiration + " hours");
+        lore.add(ChatColor.DARK_GREEN + "Claim size: " + ChatColor.LIGHT_PURPLE + claim.getArea() + " blocks");
+        lore.add(ChatColor.GOLD + "Location: " + ChatColor.WHITE + "X: " + claim.getLesserBoundaryCorner().getBlockX() + ", Y: " + claim.getLesserBoundaryCorner().getBlockY() + ", Z: " + claim.getLesserBoundaryCorner().getBlockZ());
+        lore.add(ChatColor.DARK_RED + "Claim owner: " + ChatColor.AQUA + claim.getOwnerName());
         meta.setLore(lore);
-
+        meta.setOwner(Bukkit.getOfflinePlayer(claim.getOwnerID()).getName()); // Set the owner of the skull to the owner of the claim
         item.setItemMeta(meta);
         return item;
     }
@@ -752,7 +825,7 @@ public class InventoryListener implements Listener {
 
         return expirationDate;
     }
-    
+
    //get player owned claims
     public List<Claim> getPlayerClaims(UUID playerUUID) {
         List<Claim> playerClaims = new ArrayList<>();
@@ -826,7 +899,7 @@ public class InventoryListener implements Listener {
         double totalClaimPrice = 0;
         for(Claim claim : playerClaims)
         {
-            totalClaimPrice += plugin.getConfig().getDouble("options.claimPrice") * claim.getArea();
+            totalClaimPrice += plugin.getConfig().getDouble("settings.claimPrice") * claim.getArea();
         }
         DecimalFormat df = new DecimalFormat("#,###");
         String formattedPrice = df.format(totalClaimPrice);
@@ -873,5 +946,52 @@ public class InventoryListener implements Listener {
         // Set the item meta to the item
 
         return item;
+    }
+
+    public void sendPlayerMessage(Player player, String message)
+    {
+        message.replace("%price%", String.valueOf(plugin.getConfig().getDouble("settings.claimPrice")));
+        message.replace("%player%", player.getName());
+        message.replace("%claimid%", String.valueOf(plugin.getConfig().getDouble("settings.claimPrice")));
+        player.sendMessage(ChatColor.translateAlternateColorCodes('&', message));
+    }
+
+    public void showClaimBorderWithParticles(Player player, Claim claim) {
+        World world = player.getWorld();
+        int x1 = claim.getLesserBoundaryCorner().getBlockX();
+        int z1 = claim.getLesserBoundaryCorner().getBlockZ();
+        int x2 = claim.getGreaterBoundaryCorner().getBlockX();
+        int z2 = claim.getGreaterBoundaryCorner().getBlockZ();
+
+        // Calculate the area of the claim
+        int claimArea = claim.getArea();
+
+        // Calculate the duration based on the claim area
+        // Minimum duration is 30 seconds, add 45 seconds for every 15000 blocks in the claim, cap at 180 seconds
+        int duration = Math.min(30 + (claimArea / 15000) * 45, 180);
+
+        new BukkitRunnable() {
+            int counter = 0;
+            @Override
+            public void run() {
+                double y = player.getLocation().getY() + 1; // Get the player's y level inside the run method
+                double y2 = player.getLocation().getY(); // Get the player's y level inside the run method
+
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    for (int x = x1; x <= x2; x++) {
+                        for (int z = z1; z <= z2; z++) {
+                            if (x == x1 || x == x2 || z == z1 || z == z2) {
+                                world.spawnParticle(Particle.VILLAGER_HAPPY, x, y, z, 1);
+                                world.spawnParticle(Particle.VILLAGER_HAPPY, x, y2, z, 1);
+                            }
+                        }
+                    }
+                });
+                counter++;
+                if (counter >= duration) { // Duration based on claim size
+                    this.cancel();
+                }
+            }
+        }.runTaskTimerAsynchronously(plugin, 0, 20); // run every 1 second (20 ticks = 1 second)
     }
 }

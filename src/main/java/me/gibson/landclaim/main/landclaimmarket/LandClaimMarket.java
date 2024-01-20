@@ -4,6 +4,7 @@ import me.gibson.landclaim.main.landclaimmarket.commands.*;
 import me.gibson.landclaim.main.landclaimmarket.listeners.InventoryListener;
 import me.gibson.landclaim.main.landclaimmarket.utils.AsyncClaimLogger;
 import me.gibson.landclaim.main.landclaimmarket.utils.ClaimInfo;
+import me.gibson.landclaim.main.landclaimmarket.utils.Settings;
 import me.ryanhamshire.GriefPrevention.Claim;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
 import net.milkbowl.vault.economy.Economy;
@@ -26,6 +27,8 @@ public final class LandClaimMarket extends JavaPlugin {
     public HashMap<Claim, ClaimInfo> claimsForSale = new HashMap<Claim, ClaimInfo>();
     public InventoryListener inventoryListener = new InventoryListener(this);
 
+    public Settings settings = new Settings(this);
+
     @Override
     public void onEnable() {
         this.getCommand("sellclaim").setExecutor(new SellClaimCommand(this));
@@ -38,6 +41,7 @@ public final class LandClaimMarket extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new InventoryListener(this), this);
         inventoryListener = new InventoryListener(this);
         asyncClaimLogger = new AsyncClaimLogger(this);
+        settings = new Settings(this);
         if(!getDataFolder().exists()) {
             getDataFolder().mkdir();
         }
@@ -58,7 +62,8 @@ public final class LandClaimMarket extends JavaPlugin {
             return;
         }
 
-        saveDefaultConfig();
+       // saveDefaultConfig();
+        settings.createDefaultConfig();
         // Plugin startup logic
 
     }
@@ -70,6 +75,9 @@ public final class LandClaimMarket extends JavaPlugin {
         // Plugin shutdown logic
     }
 
+    public Settings getSettings() {
+        return settings;
+    }
 
     public HashMap<Claim, ClaimInfo> getClaimsForSale() {
         return claimsForSale;
